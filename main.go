@@ -72,32 +72,33 @@ func main() {
 	e.POST("/", func(c echo.Context) error {
 		ev := new(Event)
 		if err := c.Bind(ev); err != nil {
+			log.Println(err)
 			return err
 		}
 
 		if ev.Token != slackVerifyToken {
+			log.Println("failed to verify token:", ev.Token)
 			return c.String(http.StatusBadRequest, "failed to verify token")
+		}
+
+		if ev.Event.Username == username {
+			return c.NoContent(http.StatusConflict)
 		}
 
 		if ev.Type == "url_verification" {
 			return c.String(http.StatusOK, ev.Challenge)
 		}
 
-		if ev.Event.Username == username {
-			return c.NoContent(http.StatusNoContent)
-		}
-
 		query := ""
-
-		if s := hostIDPattern.FindString(ev.Event.Text); s != "" {
+		if s := findQuery(ev.Event.Text); s != "" {
 			query = s
-		}
-		if s := privateDnsNamePattern.FindString(ev.Event.Text); s != "" {
-			query = s
-		}
-
-		if query == "" {
-			return c.NoContent(http.StatusNoContent)
+		} else {
+			for _, a := range ev.Event.Attachments {
+				if s := findQuery(a.Text); s != "" {
+					query = s
+					break
+				}
+			}
 		}
 
 		instance, err := getInstance(query)
@@ -116,11 +117,13 @@ func main() {
 					ThreadTimestamp: ev.Event.Timestamp,
 				},
 			)
+			log.Println(err)
 			return err
 		}
 
 		yamlInstance, err := yaml.Marshal(instance)
 		if err != nil {
+			log.Println(err)
 			return err
 		}
 
@@ -133,7 +136,7 @@ func main() {
 		}
 
 		api.PostMessage(
-			ev.Event.Channel,
+			msg.Channel,
 			query,
 			slack.PostMessageParameters{
 				Attachments: []slack.Attachment{
@@ -178,8 +181,10 @@ func main() {
 						Text:  string(yamlInstance),
 					},
 				},
-				ThreadTimestamp: ev.Event.Timestamp,
-			})
+				ThreadTimestamp: msg.Timestamp,
+			},
+		)
+
 		return c.JSON(http.StatusOK, struct{}{})
 	})
 
@@ -223,4 +228,16 @@ func getInstance(query string) (*ec2.Instance, error) {
 	}
 
 	return nil, fmt.Errorf("not found instance: %s", query)
+}
+
+func findQuery(text string) string {
+	if s := hostIDPattern.FindString(text); s != "" {
+		return s
+	}
+
+	if s := privateDnsNamePattern.FindString(text); s != "" {
+		return s
+	}
+
+	return ""
 }
