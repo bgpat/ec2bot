@@ -11,8 +11,7 @@ COPY Gopkg.toml Gopkg.lock ./
 RUN dep ensure -vendor-only -v
 
 ADD . ./
-RUN make
-RUN mv bin/ec2bot /ec2bot
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -extldflags '-static'" -o /ec2bot
 
 
 #FROM alpine:3.7
