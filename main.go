@@ -136,7 +136,7 @@ func main() {
 		}
 
 		api.PostMessage(
-			msg.Channel,
+			ev.Event.Channel,
 			query,
 			slack.PostMessageParameters{
 				Attachments: []slack.Attachment{
@@ -181,7 +181,7 @@ func main() {
 						Text:  string(yamlInstance),
 					},
 				},
-				ThreadTimestamp: msg.Timestamp,
+				ThreadTimestamp: ev.Event.Timestamp,
 			},
 		)
 
