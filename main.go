@@ -81,12 +81,12 @@ func main() {
 			return c.String(http.StatusBadRequest, "failed to verify token")
 		}
 
-		if ev.Event.Username == username {
-			return c.NoContent(http.StatusConflict)
-		}
-
 		if ev.Type == "url_verification" {
 			return c.String(http.StatusOK, ev.Challenge)
+		}
+
+		if ev.Event.Username == username {
+			return c.NoContent(http.StatusConflict)
 		}
 
 		query := ""
