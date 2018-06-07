@@ -137,7 +137,7 @@ func main() {
 					ThreadTimestamp: ev.Event.Timestamp,
 				},
 			)
-			return err
+			return c.String(http.StatusOK, err.Error())
 		}
 
 		yamlInstance, err := yaml.Marshal(instance)
@@ -154,7 +154,7 @@ func main() {
 			}
 		}
 
-		api.PostMessage(
+		_, _, err = api.PostMessage(
 			ev.Event.Channel,
 			query,
 			slack.PostMessageParameters{
@@ -203,6 +203,9 @@ func main() {
 				ThreadTimestamp: ev.Event.Timestamp,
 			},
 		)
+		if err != nil {
+			return err
+		}
 
 		return c.String(http.StatusOK, "post instance detail")
 	})
