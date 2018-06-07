@@ -68,6 +68,9 @@ func main() {
 
 	e := echo.New()
 	e.Use(middleware.Logger())
+	e.Use(middleware.BodyDump(func(c echo.Context, reqBody, resBody []byte) {
+		log.Println(string(resBody))
+	}))
 
 	e.POST("/", func(c echo.Context) error {
 		ev := new(Event)
@@ -78,7 +81,7 @@ func main() {
 
 		if ev.Token != slackVerifyToken {
 			log.Println("failed to verify token:", ev.Token)
-			return c.String(http.StatusBadRequest, "failed to verify token")
+			return c.String(http.StatusUnauthorized, "failed to verify token")
 		}
 
 		if ev.Type == "url_verification" {
@@ -86,7 +89,7 @@ func main() {
 		}
 
 		if ev.Event.Username == username {
-			return c.NoContent(http.StatusConflict)
+			return c.String(http.StatusOK, "ignore own post")
 		}
 
 		query := ""
@@ -98,9 +101,26 @@ func main() {
 					query = s
 					break
 				}
+				if s := findQuery(a.Title); s != "" {
+					query = s
+					break
+				}
+				for _, f := range a.Fields {
+					if s := findQuery(f.Value); s != "" {
+						query = s
+						break
+					}
+				}
+				if query != "" {
+					break
+				}
 			}
 		}
+		if query == "" {
+			return c.String(http.StatusOK, "query not found")
+		}
 
+		log.Println("query:", query)
 		instance, err := getInstance(query)
 		if err != nil {
 			defer api.PostMessage(
@@ -117,7 +137,6 @@ func main() {
 					ThreadTimestamp: ev.Event.Timestamp,
 				},
 			)
-			log.Println(err)
 			return err
 		}
 
@@ -185,7 +204,7 @@ func main() {
 			},
 		)
 
-		return c.JSON(http.StatusOK, struct{}{})
+		return c.String(http.StatusOK, "post instance detail")
 	})
 
 	e.Logger.Fatal(e.Start(":3000"))
@@ -224,10 +243,13 @@ func getInstance(query string) (*ec2.Instance, error) {
 			if instance.PrivateDnsName != nil && *instance.PrivateDnsName == query {
 				return instance, nil
 			}
+			if instance.InstanceId != nil && *instance.InstanceId == query {
+				return instance, nil
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("not found instance: %s", query)
+	return nil, fmt.Errorf("instance not found: %s", query)
 }
 
 func findQuery(text string) string {
