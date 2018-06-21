@@ -42,7 +42,7 @@ var (
 	slackAccessToken = os.Getenv("SLACK_ACCESS_TOKEN")
 	slackVerifyToken = os.Getenv("SLACK_VERIFY_TOKEN")
 
-	hostIDPattern         = regexp.MustCompile("i-[0-9a-f]{17}")
+	hostIDPattern         = regexp.MustCompile("i-[0-9a-f]{5,}")
 	privateDnsNamePattern = regexp.MustCompile("ip-[0-9-]+.[a-z]{2}-[a-z]+-[0-9]+.compute.internal")
 )
 
