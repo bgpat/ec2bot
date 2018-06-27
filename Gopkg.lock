@@ -31,10 +31,11 @@
     "private/protocol/rest",
     "private/protocol/xml/xmlutil",
     "service/ec2",
+    "service/elb",
     "service/sts"
   ]
-  revision = "47309c012812d9e9c488a54313e5cdfa7479df93"
-  version = "v1.14.1"
+  revision = "aff39e8473db578a1cec9ac2f829a56813c1d631"
+  version = "v1.14.14"
 
 [[projects]]
   name = "github.com/dgrijalva/jwt-go"
@@ -82,8 +83,8 @@
     "log",
     "random"
   ]
-  revision = "588f4e8bddc6cb45c27b448e925c7fd6a5545434"
-  version = "0.2.5"
+  revision = "d6898124de917583f5ff5592ef931d1dfe0ddc05"
+  version = "0.2.6"
 
 [[projects]]
   name = "github.com/mattn/go-colorable"
@@ -122,13 +123,13 @@
     "acme",
     "acme/autocert"
   ]
-  revision = "b47b1587369238182299fe4dad77d05b8b461e06"
+  revision = "a49355c7e3f8fe157a85be2f77e6e269a0f89602"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "9527bec2660bd847c050fda93a0f0c6dee0800bb"
+  revision = "7138fd3d9dc8335c567ca206f4333fb75eb05d56"
 
 [[projects]]
   name = "gopkg.in/yaml.v2"
@@ -139,6 +140,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "8e463a2a443ad6a06219b11145dd3ee40817d472f519ab2eb64b43b3495b17a2"
+  inputs-digest = "15b13e25f8f02352b580762f127bafdc0b64124ff967daf6f08236251a6c2c42"
   solver-name = "gps-cdcl"
   solver-version = 1
