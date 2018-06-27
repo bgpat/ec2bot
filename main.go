@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -92,122 +91,19 @@ func main() {
 			return c.String(http.StatusOK, "ignore own post")
 		}
 
-		query := ""
-		if s := findQuery(ev.Event.Text); s != "" {
-			query = s
-		} else {
-			for _, a := range ev.Event.Attachments {
-				if s := findQuery(a.Text); s != "" {
-					query = s
-					break
-				}
-				if s := findQuery(a.Title); s != "" {
-					query = s
-					break
-				}
-				for _, f := range a.Fields {
-					if s := findQuery(f.Value); s != "" {
-						query = s
-						break
-					}
-				}
-				if query != "" {
-					break
-				}
-			}
-		}
-		if query == "" {
-			return c.String(http.StatusOK, "query not found")
-		}
-
-		log.Println("query:", query)
-		instance, err := getInstance(query)
-		if err != nil {
-			defer api.PostMessage(
-				ev.Event.Channel,
-				query,
-				slack.PostMessageParameters{
-					Attachments: []slack.Attachment{
-						slack.Attachment{
-							Title: "failed to get instance",
-							Text:  err.Error(),
-							Color: "#daa038",
-						},
-					},
-					ThreadTimestamp: ev.Event.Timestamp,
-				},
-			)
-			return c.String(http.StatusOK, err.Error())
-		}
-
-		yamlInstance, err := yaml.Marshal(instance)
+		instances, err := ev.findInstances()
 		if err != nil {
 			log.Println(err)
 			return err
 		}
-
-		tagFields := make([]slack.AttachmentField, len(instance.Tags))
-		for i, tag := range instance.Tags {
-			tagFields[i] = slack.AttachmentField{
-				Title: *tag.Key,
-				Value: *tag.Value,
+		if len(instances) > 0 {
+			for _, i := range instances {
+				ev.postInstance(i)
 			}
+			return c.String(http.StatusOK, "post instance details")
 		}
 
-		_, _, err = api.PostMessage(
-			ev.Event.Channel,
-			query,
-			slack.PostMessageParameters{
-				Attachments: []slack.Attachment{
-					slack.Attachment{
-						Fields: []slack.AttachmentField{
-							slack.AttachmentField{
-								Title: "Instance ID",
-								Value: *instance.InstanceId,
-							},
-							slack.AttachmentField{
-								Title: "Instance Type",
-								Value: *instance.InstanceType,
-							},
-							slack.AttachmentField{
-								Title: "Private DNS Name",
-								Value: *instance.PrivateDnsName,
-							},
-							slack.AttachmentField{
-								Title: "Private IP Address",
-								Value: *instance.PrivateIpAddress,
-							},
-							slack.AttachmentField{
-								Title: "Public DNS Name",
-								Value: *instance.PublicDnsName,
-							},
-							slack.AttachmentField{
-								Title: "Public IP Address",
-								Value: *instance.PublicIpAddress,
-							},
-							slack.AttachmentField{
-								Title: "State",
-								Value: *instance.State.Name,
-							},
-						},
-					},
-					slack.Attachment{
-						Title:  "Tags",
-						Fields: tagFields,
-					},
-					slack.Attachment{
-						Title: "Details",
-						Text:  string(yamlInstance),
-					},
-				},
-				ThreadTimestamp: ev.Event.Timestamp,
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-		return c.String(http.StatusOK, "post instance detail")
+		return c.String(http.StatusOK, "query not found")
 	})
 
 	e.Logger.Fatal(e.Start(":3000"))
@@ -252,17 +148,151 @@ func getInstance(query string) (*ec2.Instance, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("instance not found: %s", query)
+	return nil, nil
 }
 
-func findQuery(text string) string {
-	if s := hostIDPattern.FindString(text); s != "" {
-		return s
+func (ev *Event) findQuery(pattern *regexp.Regexp) []string {
+	queries := make(map[string]struct{})
+	for _, s := range pattern.FindAllString(ev.Event.Text, -1) {
+		queries[s] = struct{}{}
+	}
+	for _, a := range ev.Event.Attachments {
+		for _, s := range pattern.FindAllString(a.Text, -1) {
+			queries[s] = struct{}{}
+		}
+		for _, s := range pattern.FindAllString(a.Title, -1) {
+			queries[s] = struct{}{}
+		}
+		for _, f := range a.Fields {
+			for _, s := range pattern.FindAllString(f.Value, -1) {
+				queries[s] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(queries))
+	for q, _ := range queries {
+		result = append(result, q)
+	}
+	return result
+}
+
+func (ev *Event) findInstanceQueries() []string {
+	return append(
+		ev.findQuery(hostIDPattern),
+		ev.findQuery(privateDnsNamePattern)...,
+	)
+}
+
+func (ev *Event) findInstances() (result []*ec2.Instance, err error) {
+	queries := ev.findInstanceQueries()
+	if len(queries) == 0 {
+		return
+	}
+	instances := make(map[string]*ec2.Instance)
+	notFound := make([]string, 0)
+	for _, q := range queries {
+		instance, err := getInstance(q)
+		if err != nil {
+			return nil, err
+		}
+		if instance == nil {
+			notFound = append(notFound, q)
+			continue
+		}
+		instances[*instance.InstanceId] = instance
+	}
+	if len(notFound) > 0 {
+		defer ev.postNoInstance(notFound)
+	}
+	result = make([]*ec2.Instance, 0, len(instances))
+	for _, i := range instances {
+		result = append(result, i)
+	}
+	return
+}
+
+func (ev *Event) postInstance(instance *ec2.Instance) error {
+	yamlInstance, err := yaml.Marshal(instance)
+	if err != nil {
+		log.Println(err)
+		return err
 	}
 
-	if s := privateDnsNamePattern.FindString(text); s != "" {
-		return s
+	tagFields := make([]slack.AttachmentField, len(instance.Tags))
+	for i, tag := range instance.Tags {
+		tagFields[i] = slack.AttachmentField{
+			Title: *tag.Key,
+			Value: *tag.Value,
+		}
 	}
 
-	return ""
+	_, _, err = api.PostMessage(
+		ev.Event.Channel,
+		*instance.InstanceId,
+		slack.PostMessageParameters{
+			Attachments: []slack.Attachment{
+				slack.Attachment{
+					Fields: []slack.AttachmentField{
+						slack.AttachmentField{
+							Title: "Instance ID",
+							Value: *instance.InstanceId,
+						},
+						slack.AttachmentField{
+							Title: "Instance Type",
+							Value: *instance.InstanceType,
+						},
+						slack.AttachmentField{
+							Title: "Private DNS Name",
+							Value: *instance.PrivateDnsName,
+						},
+						slack.AttachmentField{
+							Title: "Private IP Address",
+							Value: *instance.PrivateIpAddress,
+						},
+						slack.AttachmentField{
+							Title: "Public DNS Name",
+							Value: *instance.PublicDnsName,
+						},
+						slack.AttachmentField{
+							Title: "Public IP Address",
+							Value: *instance.PublicIpAddress,
+						},
+						slack.AttachmentField{
+							Title: "State",
+							Value: *instance.State.Name,
+						},
+					},
+				},
+				slack.Attachment{
+					Title:  "Tags",
+					Fields: tagFields,
+				},
+				slack.Attachment{
+					Title: "Details",
+					Text:  string(yamlInstance),
+				},
+			},
+			ThreadTimestamp: ev.Event.Timestamp,
+		},
+	)
+	return err
+}
+
+func (ev *Event) postNoInstance(queries []string) error {
+	a := make([]slack.Attachment, len(queries))
+	for i, q := range queries {
+		a[i] = slack.Attachment{
+			Text:  q,
+			Color: "#daa038",
+		}
+	}
+	_, _, err := api.PostMessage(
+		ev.Event.Channel,
+		"failed to get instance",
+		slack.PostMessageParameters{
+			Attachments:     a,
+			ThreadTimestamp: ev.Event.Timestamp,
+		},
+	)
+	return err
 }
