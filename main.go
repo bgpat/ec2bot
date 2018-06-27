@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/ghodss/yaml"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -32,9 +33,16 @@ type InstanceCache struct {
 	Instances *ec2.DescribeInstancesOutput
 }
 
+type LoadBalancerCache struct {
+	UpdatedAt     time.Time
+	LoadBalancers *elb.DescribeLoadBalancersOutput
+	Tags          map[string][]*elb.Tag
+}
+
 var (
-	api           *slack.Client
-	instanceCache InstanceCache
+	api               *slack.Client
+	instanceCache     InstanceCache
+	loadBalancerCache LoadBalancerCache
 
 	interval time.Duration
 
@@ -42,7 +50,9 @@ var (
 	slackVerifyToken = os.Getenv("SLACK_VERIFY_TOKEN")
 
 	hostIDPattern         = regexp.MustCompile("i-[0-9a-f]{5,}")
-	privateDnsNamePattern = regexp.MustCompile("ip-[0-9-]+.[a-z]{2}-[a-z]+-[0-9]+.compute.internal")
+	privateDnsNamePattern = regexp.MustCompile(`ip-[0-9-]+\.[a-z]{2}-[a-z]+-[0-9]+\.compute\.internal`)
+
+	elbPattern = regexp.MustCompile(`[0-9a-f]+-[0-9a-f]+\.[a-z]{2}-[a-z]+-[0-9]+\.elb\.amazonaws\.com`)
 )
 
 func init() {
@@ -103,6 +113,18 @@ func main() {
 			return c.String(http.StatusOK, "post instance details")
 		}
 
+		loadBalancers, err := ev.findLoadBalancers()
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		if len(loadBalancers) > 0 {
+			for _, lb := range loadBalancers {
+				ev.postLoadBalancer(lb)
+			}
+			return c.String(http.StatusOK, "post load balancer details")
+		}
+
 		return c.String(http.StatusOK, "query not found")
 	})
 
@@ -151,6 +173,58 @@ func getInstance(query string) (*ec2.Instance, error) {
 	return nil, nil
 }
 
+func getLoadBalancer(query string) (*elb.LoadBalancerDescription, error) {
+	svc := elb.New(session.New())
+
+	var (
+		resp *elb.DescribeLoadBalancersOutput
+		err  error
+	)
+	if loadBalancerCache.UpdatedAt.Add(interval).Before(time.Now()) {
+		resp, err = svc.DescribeLoadBalancers(nil)
+		if err != nil {
+			return nil, err
+		}
+		loadBalancerCache = LoadBalancerCache{
+			UpdatedAt:     time.Now(),
+			LoadBalancers: resp,
+			Tags:          make(map[string][]*elb.Tag),
+		}
+	} else {
+		resp = loadBalancerCache.LoadBalancers
+	}
+
+	for _, lb := range resp.LoadBalancerDescriptions {
+		if lb.DNSName != nil && *lb.DNSName == query {
+			return lb, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func getLoadBalancerTags(name string) ([]*elb.Tag, error) {
+	svc := elb.New(session.New())
+	tags := make([]*elb.Tag, 0)
+	if t, ok := loadBalancerCache.Tags[name]; ok {
+		tags = t
+	} else {
+		resp, err := svc.DescribeTags(&elb.DescribeTagsInput{
+			LoadBalancerNames: []*string{&name},
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range resp.TagDescriptions {
+			loadBalancerCache.Tags[*d.LoadBalancerName] = d.Tags
+			if *d.LoadBalancerName == name {
+				tags = d.Tags
+			}
+		}
+	}
+	return tags, nil
+}
+
 func (ev *Event) findQuery(pattern *regexp.Regexp) []string {
 	queries := make(map[string]struct{})
 	for _, s := range pattern.FindAllString(ev.Event.Text, -1) {
@@ -183,6 +257,10 @@ func (ev *Event) findInstanceQueries() []string {
 	)
 }
 
+func (ev *Event) findLoadBalancerQueries() []string {
+	return ev.findQuery(elbPattern)
+}
+
 func (ev *Event) findInstances() (result []*ec2.Instance, err error) {
 	queries := ev.findInstanceQueries()
 	if len(queries) == 0 {
@@ -207,6 +285,34 @@ func (ev *Event) findInstances() (result []*ec2.Instance, err error) {
 	result = make([]*ec2.Instance, 0, len(instances))
 	for _, i := range instances {
 		result = append(result, i)
+	}
+	return
+}
+
+func (ev *Event) findLoadBalancers() (result []*elb.LoadBalancerDescription, err error) {
+	queries := ev.findLoadBalancerQueries()
+	if len(queries) == 0 {
+		return
+	}
+	lbs := make(map[string]*elb.LoadBalancerDescription)
+	notFound := make([]string, 0)
+	for _, q := range queries {
+		lb, err := getLoadBalancer(q)
+		if err != nil {
+			return nil, err
+		}
+		if lb == nil {
+			notFound = append(notFound, q)
+			continue
+		}
+		lbs[*lb.DNSName] = lb
+	}
+	if len(notFound) > 0 {
+		defer ev.postNoLoadBalancer(notFound)
+	}
+	result = make([]*elb.LoadBalancerDescription, 0, len(lbs))
+	for _, lb := range lbs {
+		result = append(result, lb)
 	}
 	return
 }
@@ -278,6 +384,61 @@ func (ev *Event) postInstance(instance *ec2.Instance) error {
 	return err
 }
 
+func (ev *Event) postLoadBalancer(loadBalancer *elb.LoadBalancerDescription) error {
+	yamlLoadBalancer, err := yaml.Marshal(loadBalancer)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	tags, err := getLoadBalancerTags(*loadBalancer.LoadBalancerName)
+	if err != nil {
+		return err
+	}
+	tagFields := make([]slack.AttachmentField, len(tags))
+	for lb, tag := range tags {
+		tagFields[lb] = slack.AttachmentField{
+			Title: *tag.Key,
+			Value: *tag.Value,
+		}
+	}
+
+	_, _, err = api.PostMessage(
+		ev.Event.Channel,
+		*loadBalancer.LoadBalancerName,
+		slack.PostMessageParameters{
+			Attachments: []slack.Attachment{
+				slack.Attachment{
+					Fields: []slack.AttachmentField{
+						slack.AttachmentField{
+							Title: "Name",
+							Value: *loadBalancer.LoadBalancerName,
+						},
+						slack.AttachmentField{
+							Title: "DNS Name",
+							Value: *loadBalancer.DNSName,
+						},
+						slack.AttachmentField{
+							Title: "Scheme",
+							Value: *loadBalancer.Scheme,
+						},
+					},
+				},
+				slack.Attachment{
+					Title:  "Tags",
+					Fields: tagFields,
+				},
+				slack.Attachment{
+					Title: "Details",
+					Text:  string(yamlLoadBalancer),
+				},
+			},
+			ThreadTimestamp: ev.Event.Timestamp,
+		},
+	)
+	return err
+}
+
 func (ev *Event) postNoInstance(queries []string) error {
 	a := make([]slack.Attachment, len(queries))
 	for i, q := range queries {
@@ -289,6 +450,25 @@ func (ev *Event) postNoInstance(queries []string) error {
 	_, _, err := api.PostMessage(
 		ev.Event.Channel,
 		"failed to get instance",
+		slack.PostMessageParameters{
+			Attachments:     a,
+			ThreadTimestamp: ev.Event.Timestamp,
+		},
+	)
+	return err
+}
+
+func (ev *Event) postNoLoadBalancer(queries []string) error {
+	a := make([]slack.Attachment, len(queries))
+	for i, q := range queries {
+		a[i] = slack.Attachment{
+			Text:  q,
+			Color: "#daa038",
+		}
+	}
+	_, _, err := api.PostMessage(
+		ev.Event.Channel,
+		"failed to get load balancer",
 		slack.PostMessageParameters{
 			Attachments:     a,
 			ThreadTimestamp: ev.Event.Timestamp,
