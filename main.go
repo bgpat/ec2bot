@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -195,7 +196,7 @@ func getLoadBalancer(query string) (*elb.LoadBalancerDescription, error) {
 	}
 
 	for _, lb := range resp.LoadBalancerDescriptions {
-		if lb.DNSName != nil && *lb.DNSName == query {
+		if lb.DNSName != nil && strings.HasSuffix(*lb.DNSName, query) {
 			return lb, nil
 		}
 	}
