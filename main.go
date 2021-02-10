@@ -129,6 +129,10 @@ func main() {
 		return c.String(http.StatusOK, "query not found")
 	})
 
+	e.GET("/ping", func(c echo.Context) error {
+		return c.String(http.StatusOK, "pong")
+	})
+
 	e.Logger.Fatal(e.Start(":3000"))
 }
 
