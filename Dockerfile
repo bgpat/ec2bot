@@ -1,20 +1,19 @@
-FROM golang:1.10-alpine3.7
+FROM golang:1.11-alpine3.10
 
 RUN apk add -U ca-certificates curl git gcc musl-dev make
-RUN curl -fsSL -o /usr/local/bin/dep https://github.com/golang/dep/releases/download/v0.4.1/dep-linux-amd64 \
-		&& chmod +x /usr/local/bin/dep
+ENV GO111MODULE=on
 
 RUN mkdir -p $GOPATH/src/github.com/bgpat/ec2bot
 WORKDIR $GOPATH/src/github.com/bgpat/ec2bot
 
-COPY Gopkg.toml Gopkg.lock ./
-RUN dep ensure -vendor-only -v
+COPY go.mod go.sum ./
+RUN go mod download
 
 ADD . ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -extldflags '-static'" -o /ec2bot
 
 
-#FROM alpine:3.7
+#FROM alpine:3.10
 FROM scratch
 COPY --from=0 /ec2bot /ec2bot
 COPY --from=0 /etc/ssl /etc/ssl
