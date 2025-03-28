@@ -3,7 +3,7 @@ module github.com/bgpat/ec2bot
 go 1.24.1
 
 require (
-	github.com/aws/aws-sdk-go v1.34.0
+	github.com/aws/aws-sdk-go v1.55.6
 	github.com/ghodss/yaml v1.0.0
 	github.com/labstack/echo v3.3.5+incompatible
 	github.com/nlopes/slack v0.2.0
@@ -83,7 +83,7 @@ require (
 	github.com/hashicorp/serf v0.8.2 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20200824232613-28f6c0f3b639 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
-	github.com/jmespath/go-jmespath v0.3.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
