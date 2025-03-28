@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/aws/aws-sdk-go v1.34.0
 	github.com/ghodss/yaml v1.0.0
-	github.com/labstack/echo v3.3.5+incompatible
+	github.com/labstack/echo v3.3.10+incompatible
 	github.com/nlopes/slack v0.2.0
 )
 
