@@ -3,7 +3,7 @@ module github.com/bgpat/ec2bot
 go 1.24.1
 
 require (
-	github.com/aws/aws-sdk-go v1.34.0
+	github.com/aws/aws-sdk-go v1.55.6
 	github.com/ghodss/yaml v1.0.0
 	github.com/labstack/echo v3.3.5+incompatible
 	github.com/nlopes/slack v0.2.0
@@ -12,7 +12,7 @@ require (
 require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
-	github.com/jmespath/go-jmespath v0.3.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/labstack/gommon v0.0.0-20180613044413-d6898124de91 // indirect
 	github.com/lusis/slack-test v0.0.0-20190426140909-c40012f20018 // indirect
