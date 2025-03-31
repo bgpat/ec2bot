@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -8,9 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/elb"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elasticloadbalancing_types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	"github.com/ghodss/yaml"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -36,8 +39,8 @@ type InstanceCache struct {
 
 type LoadBalancerCache struct {
 	UpdatedAt     time.Time
-	LoadBalancers *elb.DescribeLoadBalancersOutput
-	Tags          map[string][]*elb.Tag
+	LoadBalancers *elasticloadbalancing.DescribeLoadBalancersOutput
+	Tags          map[string][]elasticloadbalancing_types.Tag
 }
 
 var (
@@ -83,6 +86,7 @@ func main() {
 	}))
 
 	e.POST("/", func(c echo.Context) error {
+		ctx := c.Request().Context()
 		ev := new(Event)
 		if err := c.Bind(ev); err != nil {
 			log.Println(err)
@@ -102,7 +106,7 @@ func main() {
 			return c.String(http.StatusOK, "ignore own post")
 		}
 
-		instances, err := ev.findInstances()
+		instances, err := ev.findInstances(ctx)
 		if err != nil {
 			log.Println(err)
 			return err
@@ -114,14 +118,14 @@ func main() {
 			return c.String(http.StatusOK, "post instance details")
 		}
 
-		loadBalancers, err := ev.findLoadBalancers()
+		loadBalancers, err := ev.findLoadBalancers(ctx)
 		if err != nil {
 			log.Println(err)
 			return err
 		}
 		if len(loadBalancers) > 0 {
 			for _, lb := range loadBalancers {
-				ev.postLoadBalancer(lb)
+				ev.postLoadBalancer(ctx, lb)
 			}
 			return c.String(http.StatusOK, "post load balancer details")
 		}
@@ -144,15 +148,16 @@ func getUsername() (string, error) {
 	return resp.User, err
 }
 
-func getInstance(query string) (*ec2.Instance, error) {
-	svc := ec2.New(session.New())
+func getInstance(ctx context.Context, query string) (*ec2_types.Instance, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	svc := ec2.NewFromConfig(cfg)
 
-	var (
-		resp *ec2.DescribeInstancesOutput
-		err  error
-	)
+	var resp *ec2.DescribeInstancesOutput
 	if instanceCache.UpdatedAt.Add(interval).Before(time.Now()) {
-		resp, err = svc.DescribeInstances(nil)
+		resp, err = svc.DescribeInstances(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -167,10 +172,10 @@ func getInstance(query string) (*ec2.Instance, error) {
 	for _, reservation := range resp.Reservations {
 		for _, instance := range reservation.Instances {
 			if instance.PrivateDnsName != nil && *instance.PrivateDnsName == query {
-				return instance, nil
+				return &instance, nil
 			}
 			if instance.InstanceId != nil && *instance.InstanceId == query {
-				return instance, nil
+				return &instance, nil
 			}
 		}
 	}
@@ -178,22 +183,23 @@ func getInstance(query string) (*ec2.Instance, error) {
 	return nil, nil
 }
 
-func getLoadBalancer(query string) (*elb.LoadBalancerDescription, error) {
-	svc := elb.New(session.New())
+func getLoadBalancer(ctx context.Context, query string) (*elasticloadbalancing_types.LoadBalancerDescription, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	svc := elasticloadbalancing.NewFromConfig(cfg)
 
-	var (
-		resp *elb.DescribeLoadBalancersOutput
-		err  error
-	)
+	var resp *elasticloadbalancing.DescribeLoadBalancersOutput
 	if loadBalancerCache.UpdatedAt.Add(interval).Before(time.Now()) {
-		resp, err = svc.DescribeLoadBalancers(nil)
+		resp, err = svc.DescribeLoadBalancers(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
 		loadBalancerCache = LoadBalancerCache{
 			UpdatedAt:     time.Now(),
 			LoadBalancers: resp,
-			Tags:          make(map[string][]*elb.Tag),
+			Tags:          make(map[string][]elasticloadbalancing_types.Tag),
 		}
 	} else {
 		resp = loadBalancerCache.LoadBalancers
@@ -201,21 +207,25 @@ func getLoadBalancer(query string) (*elb.LoadBalancerDescription, error) {
 
 	for _, lb := range resp.LoadBalancerDescriptions {
 		if lb.DNSName != nil && strings.HasSuffix(*lb.DNSName, query) {
-			return lb, nil
+			return &lb, nil
 		}
 	}
 
 	return nil, nil
 }
 
-func getLoadBalancerTags(name string) ([]*elb.Tag, error) {
-	svc := elb.New(session.New())
-	tags := make([]*elb.Tag, 0)
+func getLoadBalancerTags(ctx context.Context, name string) ([]elasticloadbalancing_types.Tag, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	svc := elasticloadbalancing.NewFromConfig(cfg)
+	tags := make([]elasticloadbalancing_types.Tag, 0)
 	if t, ok := loadBalancerCache.Tags[name]; ok {
 		tags = t
 	} else {
-		resp, err := svc.DescribeTags(&elb.DescribeTagsInput{
-			LoadBalancerNames: []*string{&name},
+		resp, err := svc.DescribeTags(ctx, &elasticloadbalancing.DescribeTagsInput{
+			LoadBalancerNames: []string{name},
 		})
 		if err != nil {
 			return nil, err
@@ -266,15 +276,15 @@ func (ev *Event) findLoadBalancerQueries() []string {
 	return ev.findQuery(elbPattern)
 }
 
-func (ev *Event) findInstances() (result []*ec2.Instance, err error) {
+func (ev *Event) findInstances(ctx context.Context) (result []*ec2_types.Instance, err error) {
 	queries := ev.findInstanceQueries()
 	if len(queries) == 0 {
 		return
 	}
-	instances := make(map[string]*ec2.Instance)
+	instances := make(map[string]*ec2_types.Instance)
 	notFound := make([]string, 0)
 	for _, q := range queries {
-		instance, err := getInstance(q)
+		instance, err := getInstance(ctx, q)
 		if err != nil {
 			return nil, err
 		}
@@ -287,22 +297,22 @@ func (ev *Event) findInstances() (result []*ec2.Instance, err error) {
 	if len(notFound) > 0 {
 		defer ev.postNoInstance(notFound)
 	}
-	result = make([]*ec2.Instance, 0, len(instances))
+	result = make([]*ec2_types.Instance, 0, len(instances))
 	for _, i := range instances {
 		result = append(result, i)
 	}
 	return
 }
 
-func (ev *Event) findLoadBalancers() (result []*elb.LoadBalancerDescription, err error) {
+func (ev *Event) findLoadBalancers(ctx context.Context) (result []*elasticloadbalancing_types.LoadBalancerDescription, err error) {
 	queries := ev.findLoadBalancerQueries()
 	if len(queries) == 0 {
 		return
 	}
-	lbs := make(map[string]*elb.LoadBalancerDescription)
+	lbs := make(map[string]*elasticloadbalancing_types.LoadBalancerDescription)
 	notFound := make([]string, 0)
 	for _, q := range queries {
-		lb, err := getLoadBalancer(q)
+		lb, err := getLoadBalancer(ctx, q)
 		if err != nil {
 			return nil, err
 		}
@@ -315,14 +325,14 @@ func (ev *Event) findLoadBalancers() (result []*elb.LoadBalancerDescription, err
 	if len(notFound) > 0 {
 		defer ev.postNoLoadBalancer(notFound)
 	}
-	result = make([]*elb.LoadBalancerDescription, 0, len(lbs))
+	result = make([]*elasticloadbalancing_types.LoadBalancerDescription, 0, len(lbs))
 	for _, lb := range lbs {
 		result = append(result, lb)
 	}
 	return
 }
 
-func (ev *Event) postInstance(instance *ec2.Instance) error {
+func (ev *Event) postInstance(instance *ec2_types.Instance) error {
 	yamlInstance, err := yaml.Marshal(instance)
 	if err != nil {
 		log.Println(err)
@@ -350,7 +360,7 @@ func (ev *Event) postInstance(instance *ec2.Instance) error {
 						},
 						slack.AttachmentField{
 							Title: "Instance Type",
-							Value: *instance.InstanceType,
+							Value: string(instance.InstanceType),
 						},
 						slack.AttachmentField{
 							Title: "Private DNS Name",
@@ -370,7 +380,7 @@ func (ev *Event) postInstance(instance *ec2.Instance) error {
 						},
 						slack.AttachmentField{
 							Title: "State",
-							Value: *instance.State.Name,
+							Value: string(instance.State.Name),
 						},
 					},
 				},
@@ -389,14 +399,14 @@ func (ev *Event) postInstance(instance *ec2.Instance) error {
 	return err
 }
 
-func (ev *Event) postLoadBalancer(loadBalancer *elb.LoadBalancerDescription) error {
+func (ev *Event) postLoadBalancer(ctx context.Context, loadBalancer *elasticloadbalancing_types.LoadBalancerDescription) error {
 	yamlLoadBalancer, err := yaml.Marshal(loadBalancer)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 
-	tags, err := getLoadBalancerTags(*loadBalancer.LoadBalancerName)
+	tags, err := getLoadBalancerTags(ctx, *loadBalancer.LoadBalancerName)
 	if err != nil {
 		return err
 	}
