@@ -15,8 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elasticloadbalancing_types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	"github.com/ghodss/yaml"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/nlopes/slack"
 )
 
