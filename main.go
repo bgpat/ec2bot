@@ -69,10 +69,12 @@ func init() {
 }
 
 func main() {
-	api = slack.New(slackAccessToken)
 	logger := log.New(os.Stdout, "slack-bot: ", log.Lshortfile|log.LstdFlags)
-	slack.SetLogger(logger)
-	api.SetDebug(true)
+	api = slack.New(
+		slackAccessToken,
+		slack.OptionLog(logger),
+		slack.OptionDebug(true),
+	)
 
 	username, err := getUsername()
 	if err != nil {
@@ -349,52 +351,52 @@ func (ev *Event) postInstance(instance *ec2_types.Instance) error {
 
 	_, _, err = api.PostMessage(
 		ev.Event.Channel,
-		*instance.InstanceId,
-		slack.PostMessageParameters{
-			Attachments: []slack.Attachment{
-				slack.Attachment{
-					Fields: []slack.AttachmentField{
-						slack.AttachmentField{
-							Title: "Instance ID",
-							Value: *instance.InstanceId,
-						},
-						slack.AttachmentField{
-							Title: "Instance Type",
-							Value: string(instance.InstanceType),
-						},
-						slack.AttachmentField{
-							Title: "Private DNS Name",
-							Value: *instance.PrivateDnsName,
-						},
-						slack.AttachmentField{
-							Title: "Private IP Address",
-							Value: *instance.PrivateIpAddress,
-						},
-						slack.AttachmentField{
-							Title: "Public DNS Name",
-							Value: *instance.PublicDnsName,
-						},
-						slack.AttachmentField{
-							Title: "Public IP Address",
-							Value: *instance.PublicIpAddress,
-						},
-						slack.AttachmentField{
-							Title: "State",
-							Value: string(instance.State.Name),
-						},
+		slack.MsgOptionText(*instance.InstanceId, false),
+		slack.MsgOptionAttachments(
+			slack.Attachment{
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Instance ID",
+						Value: *instance.InstanceId,
+					},
+					slack.AttachmentField{
+						Title: "Instance Type",
+						Value: string(instance.InstanceType),
+					},
+					slack.AttachmentField{
+						Title: "Private DNS Name",
+						Value: *instance.PrivateDnsName,
+					},
+					slack.AttachmentField{
+						Title: "Private IP Address",
+						Value: *instance.PrivateIpAddress,
+					},
+					slack.AttachmentField{
+						Title: "Public DNS Name",
+						Value: *instance.PublicDnsName,
+					},
+					slack.AttachmentField{
+						Title: "Public IP Address",
+						Value: *instance.PublicIpAddress,
+					},
+					slack.AttachmentField{
+						Title: "State",
+						Value: string(instance.State.Name),
 					},
 				},
-				slack.Attachment{
-					Title:  "Tags",
-					Fields: tagFields,
-				},
-				slack.Attachment{
-					Title: "Details",
-					Text:  string(yamlInstance),
-				},
 			},
+			slack.Attachment{
+				Title:  "Tags",
+				Fields: tagFields,
+			},
+			slack.Attachment{
+				Title: "Details",
+				Text:  string(yamlInstance),
+			},
+		),
+		slack.MsgOptionPostMessageParameters(slack.PostMessageParameters{
 			ThreadTimestamp: ev.Event.Timestamp,
-		},
+		}),
 	)
 	return err
 }
@@ -420,36 +422,36 @@ func (ev *Event) postLoadBalancer(ctx context.Context, loadBalancer *elasticload
 
 	_, _, err = api.PostMessage(
 		ev.Event.Channel,
-		*loadBalancer.LoadBalancerName,
-		slack.PostMessageParameters{
-			Attachments: []slack.Attachment{
-				slack.Attachment{
-					Fields: []slack.AttachmentField{
-						slack.AttachmentField{
-							Title: "Name",
-							Value: *loadBalancer.LoadBalancerName,
-						},
-						slack.AttachmentField{
-							Title: "DNS Name",
-							Value: *loadBalancer.DNSName,
-						},
-						slack.AttachmentField{
-							Title: "Scheme",
-							Value: *loadBalancer.Scheme,
-						},
+		slack.MsgOptionText(*loadBalancer.LoadBalancerName, false),
+		slack.MsgOptionAttachments(
+			slack.Attachment{
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Name",
+						Value: *loadBalancer.LoadBalancerName,
+					},
+					slack.AttachmentField{
+						Title: "DNS Name",
+						Value: *loadBalancer.DNSName,
+					},
+					slack.AttachmentField{
+						Title: "Scheme",
+						Value: *loadBalancer.Scheme,
 					},
 				},
-				slack.Attachment{
-					Title:  "Tags",
-					Fields: tagFields,
-				},
-				slack.Attachment{
-					Title: "Details",
-					Text:  string(yamlLoadBalancer),
-				},
 			},
+			slack.Attachment{
+				Title:  "Tags",
+				Fields: tagFields,
+			},
+			slack.Attachment{
+				Title: "Details",
+				Text:  string(yamlLoadBalancer),
+			},
+		),
+		slack.MsgOptionPostMessageParameters(slack.PostMessageParameters{
 			ThreadTimestamp: ev.Event.Timestamp,
-		},
+		}),
 	)
 	return err
 }
@@ -464,11 +466,11 @@ func (ev *Event) postNoInstance(queries []string) error {
 	}
 	_, _, err := api.PostMessage(
 		ev.Event.Channel,
-		"failed to get instance",
-		slack.PostMessageParameters{
-			Attachments:     a,
+		slack.MsgOptionText("failed to get instance", false),
+		slack.MsgOptionAttachments(a...),
+		slack.MsgOptionPostMessageParameters(slack.PostMessageParameters{
 			ThreadTimestamp: ev.Event.Timestamp,
-		},
+		}),
 	)
 	return err
 }
@@ -483,11 +485,11 @@ func (ev *Event) postNoLoadBalancer(queries []string) error {
 	}
 	_, _, err := api.PostMessage(
 		ev.Event.Channel,
-		"failed to get load balancer",
-		slack.PostMessageParameters{
-			Attachments:     a,
+		slack.MsgOptionText("failed to get load balancer", false),
+		slack.MsgOptionAttachments(a...),
+		slack.MsgOptionPostMessageParameters(slack.PostMessageParameters{
 			ThreadTimestamp: ev.Event.Timestamp,
-		},
+		}),
 	)
 	return err
 }
