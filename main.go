@@ -17,7 +17,7 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/nlopes/slack"
+	"github.com/slack-go/slack"
 )
 
 type Event struct {
