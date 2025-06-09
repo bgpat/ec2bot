@@ -1,4 +1,4 @@
-FROM golang:1.24.3-alpine3.21
+FROM golang:1.24.4-alpine3.21
 
 RUN apk add -U ca-certificates curl git gcc musl-dev make
 ENV GO111MODULE=on
