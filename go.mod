@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.227.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.228.0
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.29.6
 	github.com/ghodss/yaml v1.0.0
 	github.com/labstack/echo/v4 v4.13.4
